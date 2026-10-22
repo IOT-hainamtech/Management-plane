@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app ./app
+
+RUN useradd --create-home bridge
+
+USER bridge
+
+EXPOSE 8011
+
+CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8011", "--workers", "1"]
