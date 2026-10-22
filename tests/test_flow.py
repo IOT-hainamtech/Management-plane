@@ -2,9 +2,9 @@ from copy import deepcopy
 
 import pytest
 
-from app.adapters import MOCK_DOCS
-from app.mapping import plans
-from app.schemas import AlarmEvent
+from app.infrastructure.clients import MOCK_DOCS
+from app.domain.mapping import plans
+from app.application.events import AlarmEvent
 
 
 def test_order_and_links():
@@ -31,15 +31,13 @@ def test_missing_link_fails():
 
 
 def test_schema_requires_timezone():
-    base = {"event_id": "alarm-001", "org_code": "demo", "alarm_key": "TEMP-HIGH:TH-001:001", "kind": "occurrence", "rule_id": "TEMP-HIGH", "device_id": "TH-001"}
+    base = {"event_id": "alarm-001", "org_code": "demo", "alarm_key": "TEMP-HIGH:TH-001:001", "episode_key": "TEMP-HIGH:TH-001:001", "kind": "occurrence", "rule_id": "TEMP-HIGH", "rule_version": 2, "device_id": "TH-001", "episode_start": "2026-10-22T10:00:00Z", "occurrence_seq": 1}
     with pytest.raises(Exception):
         AlarmEvent.model_validate({**base, "raised_at": "2026-10-22T10:00:00"})
     event = AlarmEvent.model_validate({
         **base,
-        "rule_version": 2,
-        "episode_key": "TEMP-HIGH:TH-001:episode-1",
         "raised_at": "2026-10-22T10:00:00Z",
-        "event": {"event_id": "sensor-event-001", "event_type": "TEMPERATURE_HIGH"},
+        "event": {"event_id": "sensor-event-001", "event_type": "TEMPERATURE_HIGH", "ts": "2026-10-22T10:00:00Z"},
     })
     assert event.kind == "occurrence"
     assert event.event.event_id == "sensor-event-001"

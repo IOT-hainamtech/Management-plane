@@ -1,7 +1,7 @@
 from copy import deepcopy
 
-from app.adapters import MOCK_DOCS
-from app.mapping import plans
+from app.infrastructure.clients import MOCK_DOCS
+from app.domain.mapping import plans
 
 
 def test_mapping_is_deterministic():

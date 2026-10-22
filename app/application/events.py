@@ -20,10 +20,9 @@ class SourceEvent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     event_id: str = Field(min_length=1, max_length=180)
-    event_type: str | None = None
-    occurred_at: AwareDatetime | None = None
-    data_point: str | None = None
-    value: object | None = None
+    event_type: str = Field(min_length=1)
+    ts: AwareDatetime
+    data: dict = Field(default_factory=dict)
 
 
 class AlarmEvent(BaseModel):
@@ -32,19 +31,21 @@ class AlarmEvent(BaseModel):
     alarm_key: str = Field(min_length=1, max_length=180)
     kind: Literal["occurrence", "cleared"]
     rule_id: str = Field(min_length=1)
-    rule_version: int | None = Field(default=None, ge=1)
+    rule_version: int = Field(ge=1)
     device_id: str = Field(min_length=1)
     zone_code: str | None = None
-    episode_key: str | None = Field(default=None, min_length=1, max_length=180)
+    episode_key: str = Field(min_length=1, max_length=180)
     severity: str | None = None
-    episode_start: AwareDatetime | None = None
+    episode_start: AwareDatetime
     raised_at: AwareDatetime | None = None
     cleared_at: AwareDatetime | None = None
-    occurrence_seq: int = Field(default=1, ge=1)
-    event: SourceEvent | None = None
+    occurrence_seq: int = Field(ge=1)
+    event: SourceEvent
 
     @model_validator(mode="after")
     def timestamps_match_kind(self):
+        if self.episode_key != self.alarm_key:
+            raise ValueError("episode_key must equal alarm_key")
         if self.kind == "occurrence" and self.raised_at is None:
             raise ValueError("raised_at required for occurrence")
         if self.kind == "cleared" and self.cleared_at is None:

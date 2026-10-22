@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from app.adapters import MockDataPlane, MockFrappe
-from app.service import Bridge
+from app.infrastructure.clients import MockDataPlane, MockFrappe
+from app.application.bridge import Bridge
 
 
 def config():
@@ -23,7 +23,7 @@ def occurrence(event_id="bridge-1", sequence=1):
         "event_id": event_id,
         "org_code": "demo",
         "alarm_key": "RULE-TEMP-HIGH:TH-001:1792638000",
-        "episode_key": "TEMP-HIGH:TH-001:episode-1",
+        "episode_key": "RULE-TEMP-HIGH:TH-001:1792638000",
         "kind": "occurrence",
         "rule_id": "TEMP-HIGH",
         "rule_version": 1,
@@ -33,7 +33,7 @@ def occurrence(event_id="bridge-1", sequence=1):
         "episode_start": "2026-10-22T03:00:00Z",
         "raised_at": "2026-10-22T03:01:00Z",
         "occurrence_seq": sequence,
-        "event": {"event_id": "sensor-1", "event_type": "TEMPERATURE_HIGH"},
+        "event": {"event_id": "sensor-1", "event_type": "TEMPERATURE_HIGH", "ts": "2026-10-22T03:01:00Z", "data": {"temperature": 31}},
     }
 
 
@@ -60,8 +60,11 @@ def test_cleared_is_idempotent_and_auto_closes_from_rule_configuration():
     clear.pop("raised_at")
     assert bridge.apply_alarm(clear) == "cleared"
     assert bridge.apply_alarm(clear) == "already-cleared"
-    assert bridge.apply_alarm(occurrence("late-occurrence", 2)) == "ignored-cleared-episode"
+    recurrence = occurrence("bridge-recurrence", 2)
+    recurrence["raised_at"] = "2026-10-22T03:12:00Z"
+    recurrence["event"]["ts"] = "2026-10-22T03:12:00Z"
+    assert bridge.apply_alarm(recurrence) == "updated-occurrence"
 
     saved = frappe.find("Alarm", "alarm_key", clear["alarm_key"])
-    assert saved["status"] == "Closed"
-    assert saved["cleared_at"] == "2026-10-22 10:11:00"
+    assert saved["status"] == "New"
+    assert saved["cleared_at"] is None

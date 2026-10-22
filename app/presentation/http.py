@@ -1,14 +1,11 @@
 import secrets
 from contextlib import asynccontextmanager
 
-import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 
-from app.adapters import DataPlaneClient, FrappeClient, MockDataPlane, MockFrappe
-from app.db import Store
-from app.schemas import AlarmEvent, StatusEvent
-from app.service import Bridge
-from app.settings import Settings
+from app.application.errors import EventIdConflictError, IntegrationError, OrganizationMismatchError, StorageUnavailableError
+from app.application.events import AlarmEvent, StatusEvent
 
 
 def verify(expected: str, provided: str | None):
@@ -34,23 +31,19 @@ def require_idempotency(event_id: str, idempotency_key: str | None):
         raise HTTPException(status_code=400, detail="Idempotency-Key must equal event_id")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    cfg = settings or Settings()
+class ConfigRetryRequest(BaseModel):
+    kind: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+
+
+def create_app(cfg, bridge_factory) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        store = Store(cfg.database_url)
-        store.health()
-        frappe = MockFrappe() if cfg.nextgrp_mode == "mock" else FrappeClient(cfg)
-        plane = MockDataPlane() if cfg.data_plane_mode == "mock" else DataPlaneClient(cfg)
-        app.state.cfg, app.state.store = cfg, store
-        app.state.bridge = Bridge(cfg, store, frappe, plane)
-        try:
+        with bridge_factory(cfg) as bridge:
+            app.state.cfg, app.state.store = cfg, bridge.store
+            app.state.bridge = bridge
             yield
-        finally:
-            frappe.close()
-            plane.close()
-            store.close()
 
     app = FastAPI(title="nextGRP Management Bridge", version="1.0.0", lifespan=lifespan)
 
@@ -76,6 +69,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         require_idempotency(event.event_id, idempotency_key)
         try:
             return request.app.state.bridge.receive_status(event.model_dump(mode="json"))
+        except OrganizationMismatchError as exc:
+            raise HTTPException(status_code=403, detail="Organization mismatch") from exc
+        except EventIdConflictError as exc:
+            raise HTTPException(status_code=409, detail="EVENT_ID_CONFLICT") from exc
+        except StorageUnavailableError as exc:
+            raise HTTPException(status_code=503, detail="Inbox temporarily unavailable") from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -84,6 +83,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         require_idempotency(event.event_id, idempotency_key)
         try:
             return request.app.state.bridge.receive_alarm(event.model_dump(mode="json"))
+        except OrganizationMismatchError as exc:
+            raise HTTPException(status_code=403, detail="Organization mismatch") from exc
+        except EventIdConflictError as exc:
+            raise HTTPException(status_code=409, detail="EVENT_ID_CONFLICT") from exc
+        except StorageUnavailableError as exc:
+            raise HTTPException(status_code=503, detail="Inbox temporarily unavailable") from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -93,21 +98,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Invalid state")
         return request.app.state.store.list_inbox(state, min(max(limit, 1), 500))
 
+    @app.post("/admin/inbox/{event_id}/retry", dependencies=[Depends(admin)])
+    def retry_inbox(request: Request, event_id: str):
+        if not request.app.state.store.retry_inbox(event_id):
+            raise HTTPException(status_code=404, detail="Dead event not found")
+        return {"status": "requeued"}
+
+    @app.get("/admin/config-jobs", dependencies=[Depends(admin)])
+    def config_jobs(request: Request, state: str = "dead", limit: int = 100):
+        if state not in {"pending", "processing", "done", "dead"}:
+            raise HTTPException(status_code=400, detail="Invalid state")
+        return request.app.state.store.list_config(state, min(max(limit, 1), 500))
+
+    @app.post("/admin/config-jobs/retry", dependencies=[Depends(admin)])
+    def retry_config(request: Request, job: ConfigRetryRequest):
+        if not request.app.state.store.retry_config(job.kind, job.key):
+            raise HTTPException(status_code=404, detail="Dead config job not found")
+        return {"status": "requeued"}
+
     @app.get("/api/devices/{device_id}/latest")
     def latest(request: Request, device_id: str):
         try:
             return request.app.state.bridge.plane.latest(device_id)
-        except httpx.HTTPError as exc:
+        except IntegrationError as exc:
             raise HTTPException(status_code=502, detail="Data Plane unavailable") from exc
 
     @app.get("/api/devices/{device_id}/telemetry")
     def telemetry(request: Request, device_id: str):
         try:
             return request.app.state.bridge.plane.telemetry(device_id)
-        except httpx.HTTPError as exc:
+        except IntegrationError as exc:
             raise HTTPException(status_code=502, detail="Data Plane unavailable") from exc
 
     return app
-
-
-app = create_app()

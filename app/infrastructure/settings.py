@@ -12,18 +12,21 @@ class Settings(BaseSettings):
     org_name: str = "Demo Organization"
 
     nextgrp_mode: str = "mock"
-    nextgrp_url: str = "https://hainamglobal.nextgrp.vn"
+    nextgrp_url: str = ""
     nextgrp_api_key: str = ""
     nextgrp_api_secret: str = ""
+    nextgrp_organization_name: str = ""
 
     data_plane_mode: str = "mock"
-    data_plane_url: str = "http://127.0.0.1:8002"
+    data_plane_url: str = ""
     data_plane_token: str = ""
 
     inbound_token: str
     admin_token: str
     database_url: str
     poll_seconds: int = Field(default=30, ge=5, le=3600)
+    sync_batch_size: int = Field(default=100, ge=1, le=1000)
+    inbox_batch_size: int = Field(default=100, ge=1, le=1000)
 
     device_status_online: str = "Online"
     device_status_offline: str = "Offline"
@@ -45,8 +48,9 @@ class Settings(BaseSettings):
             self.nextgrp_url.startswith("https://")
             and self.nextgrp_api_key
             and self.nextgrp_api_secret
+            and self.nextgrp_organization_name
         ):
-            raise ValueError("Live nextGRP requires HTTPS URL and API credentials")
+            raise ValueError("Live nextGRP requires HTTPS URL, API credentials, and NEXTGRP_ORGANIZATION_NAME")
         if self.data_plane_mode == "live" and not self.data_plane_url.startswith(("http://", "https://")):
             raise ValueError("DATA_PLANE_URL must be an HTTP(S) URL")
         if not self.database_url.startswith("postgresql+"):
