@@ -13,9 +13,13 @@ MOCK_DOCS = {
         "name": "PROFILE-001", "profile_code": "TEMP_HUM_SENSOR", "version": 1,
         "signal_model": "TELEMETRY", "protocol": "MQTT", "expected_interval_s": 60,
         "heartbeat_interval_s": 60, "offline_after_missed": 3,
+        "event_types": [
+            {"event_code": "TEMPERATURE_HIGH", "event_name": "Temperature high"},
+            {"event_code": "TEMPERATURE_NORMAL", "event_name": "Temperature normal"},
+        ],
         "profile_data_points": [
-            {"code": "temperature", "label": "Temperature", "data_type": "Float", "unit": "Cel", "min": -20, "max": 80},
-            {"code": "humidity", "label": "Humidity", "data_type": "Float", "unit": "%", "min": 0, "max": 100},
+            {"code": "temperature", "label": "Temperature", "data_type": "Float", "channel": "telemetry", "unit": "Cel", "min": -20, "max": 80, "decimal_places": 1, "is_required": 1},
+            {"code": "humidity", "label": "Humidity", "data_type": "Float", "unit": "%", "min": 0, "max": 100, "decimal_places": 1, "is_required": 0},
         ],
     }],
     "Device": [{
@@ -24,9 +28,9 @@ MOCK_DOCS = {
         "online_state": "Offline", "last_seen": None,
     }],
     "Rule Configuration": [{
-        "name": "RULE-001", "rule_id": "TEMP-HIGH", "version": 1, "rule_type": "threshold", "scope_type": "Device", "scope_ref": "DEVICE-001",
+        "name": "RULE-001", "rule_id": "TEMP-HIGH", "version": 1, "rule_type": "THRESHOLD", "scope_type": "Device", "scope_ref": "DEVICE-001",
         "data_point": "temperature", "operator": ">", "threshold": 30, "duration_s": 30, "hysteresis": 1,
-        "clear_duration_s": 10, "quiet_window_s": 60, "severity": "High", "active": 1,
+        "clear_duration_s": 10, "quiet_window_s": 600, "severity": "High", "event_type": "TEMPERATURE_HIGH", "schedule": "{\"timezone\": \"Asia/Ho_Chi_Minh\"}", "auto_close": 1, "active": 1,
     }],
     "Alarm": [],
 }
@@ -90,6 +94,8 @@ class DataPlaneClient:
         self.client.close()
 
     def send(self, kind: str, resource_key: str, payload: dict) -> dict:
+        # IF-00: organization/site/zone; IF-01: device; IF-02: profile;
+        # IF-03: rule; IF-06: alarm state.
         routes = {
             "organization": "/api/v1/sync/organizations/", "site": "/api/v1/sync/sites/", "zone": "/api/v1/sync/zones/",
             "profile": "/api/v1/sync/profiles/", "device": "/api/v1/sync/devices/", "rule": "/api/v1/sync/rules/",
@@ -102,7 +108,21 @@ class DataPlaneClient:
             raise ValueError(f"Unsupported data plane sync kind: {kind}")
         response = self.client.request(method, path, json=payload)
         response.raise_for_status()
-        return response.json() if response.content else {"ok": True}
+        if not response.content:
+            raise ValueError(f"{kind} response must contain JSON")
+        try:
+            body = response.json()
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{kind} response is not JSON") from exc
+        if not isinstance(body, dict):
+            raise ValueError(f"{kind} response must be a JSON object")
+        if body.get("accepted") is False:
+            raise ValueError(f"Data Plane rejected {kind}/{resource_key}")
+        if kind != "alarm_state":
+            applied_version = body.get("applied_version")
+            if isinstance(applied_version, bool) or not isinstance(applied_version, int):
+                raise ValueError(f"{kind} response missing integer applied_version")
+        return body
 
     def latest(self, device_id: str) -> dict:
         return self._get("/api/v1/devices/" + quote(device_id, safe="") + "/latest")

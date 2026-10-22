@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 
 from app.adapters import DataPlaneClient, FrappeClient, MockDataPlane, MockFrappe
 from app.db import Store
+from app.schemas import AlarmEvent, StatusEvent
 from app.service import Bridge
 from app.settings import Settings
 
@@ -24,6 +25,13 @@ def inbound(request: Request, authorization: str | None = Header(default=None)):
     if scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Unauthorized")
     verify(request.app.state.cfg.inbound_token, token)
+
+
+def require_idempotency(event_id: str, idempotency_key: str | None):
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+    if not secrets.compare_digest(idempotency_key, event_id):
+        raise HTTPException(status_code=400, detail="Idempotency-Key must equal event_id")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -57,27 +65,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/internal/snapshot", dependencies=[Depends(admin)])
     def snapshot(request: Request):
-        return [{"kind": kind, "key": key, "priority": priority, "version": version, "payload": payload} for kind, key, priority, version, payload in request.app.state.bridge.snapshot()]
+        resources = [
+            {"kind": kind, "key": key, "priority": priority, "version": version, "payload": payload}
+            for kind, key, priority, version, payload in request.app.state.bridge.snapshot()
+        ]
+        return {"org_code": cfg.org_code, "count": len(resources), "resources": resources}
 
     @app.post("/internal/events/status", status_code=202, dependencies=[Depends(inbound)])
-    def status(request: Request, event: dict, idempotency_key: str | None = Header(default=None)):
-        if not idempotency_key:
-            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
-        if idempotency_key != event.get("event_id"):
-            raise HTTPException(status_code=400, detail="Idempotency-Key must equal event_id")
+    def status(request: Request, event: StatusEvent, idempotency_key: str | None = Header(default=None)):
+        require_idempotency(event.event_id, idempotency_key)
         try:
-            return request.app.state.bridge.receive_status(event)
+            return request.app.state.bridge.receive_status(event.model_dump(mode="json"))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/internal/events/alarm", status_code=202, dependencies=[Depends(inbound)])
-    def alarm(request: Request, event: dict, idempotency_key: str | None = Header(default=None)):
-        if not idempotency_key:
-            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
-        if idempotency_key != event.get("event_id"):
-            raise HTTPException(status_code=400, detail="Idempotency-Key must equal event_id")
+    def alarm(request: Request, event: AlarmEvent, idempotency_key: str | None = Header(default=None)):
+        require_idempotency(event.event_id, idempotency_key)
         try:
-            return request.app.state.bridge.receive_alarm(event)
+            return request.app.state.bridge.receive_alarm(event.model_dump(mode="json"))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

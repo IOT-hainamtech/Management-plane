@@ -138,23 +138,58 @@ class Bridge:
         existing = self.frappe.find("Alarm", "alarm_key", event.alarm_key)
         if event.kind == "occurrence":
             if existing:
+                # A cleared episode must never be reopened by an older outbox retry.
+                if existing.get("cleared_at"):
+                    return "ignored-cleared-episode"
                 if int(existing.get("occurrence_count") or 0) >= event.occurrence_seq:
-                    return
-                self.frappe.update("Alarm", existing["name"], {"occurrence_count": event.occurrence_seq, "last_occurred": frappe_datetime(event.raised_at)})
-                return
+                    return "duplicate-occurrence"
+                raised_at = frappe_datetime(event.raised_at)
+                if existing.get("last_occurred") and raised_at and raised_at < str(existing["last_occurred"]):
+                    return "stale-occurrence"
+                # alarm_key is the episode key on the Management Plane. Repeated
+                # occurrences in its quiet window therefore update this one record.
+                self.frappe.update("Alarm", existing["name"], {
+                    "occurrence_count": event.occurrence_seq,
+                    "last_occurred": raised_at,
+                })
+                return "updated-occurrence"
             rule = self.frappe.find("Rule Configuration", "rule_id", event.rule_id)
             device = self.frappe.find("Device", "device_id", event.device_id)
             zone = self.frappe.find("Zone", "zone_code", event.zone_code) if event.zone_code else None
             if not rule or not device or (event.zone_code and not zone):
                 raise LookupError("Missing Rule, Device or Zone in nextGRP; sync configuration first")
-            body = {"alarm_key": event.alarm_key, "rule": rule["name"], "device": device["name"], "zone": zone["name"] if zone else None, "severity": event.severity, "status": self.cfg.alarm_status_new, "first_occurred": frappe_datetime(event.episode_start or event.raised_at), "last_occurred": frappe_datetime(event.raised_at), "occurrence_count": event.occurrence_seq, "source_event_id": event.event_id}
+            body = {
+                "alarm_key": event.alarm_key,
+                "rule": rule["name"],
+                "device": device["name"],
+                "zone": zone["name"] if zone else None,
+                "severity": event.severity,
+                "status": self.cfg.alarm_status_new,
+                "first_occurred": frappe_datetime(event.episode_start or event.raised_at),
+                "last_occurred": frappe_datetime(event.raised_at),
+                "occurrence_count": event.occurrence_seq,
+                # The outer event_id deduplicates IF-05 delivery; this identifies
+                # the originating sensor/rule event and is intentionally separate.
+                "source_event_id": event.event.event_id if event.event else event.event_id,
+                "event_type": event.event.event_type if event.event else None,
+            }
             self.frappe.create("Alarm", {key: value for key, value in body.items() if value is not None})
-            return
+            return "created-occurrence"
+
+        # A cleared message can arrive before the occurrence. Let the durable inbox
+        # retry it rather than creating an incomplete Alarm record.
         if not existing:
-            raise LookupError("Alarm not found yet; retry cleared after occurrence")
-        if existing.get("status") == self.cfg.alarm_status_cleared:
-            return
-        self.frappe.update("Alarm", existing["name"], {"status": self.cfg.alarm_status_cleared, "cleared_at": frappe_datetime(event.cleared_at)})
+            raise LookupError("Alarm occurrence not found")
+        if existing.get("cleared_at"):
+            return "already-cleared"
+        rule = self.frappe.find("Rule Configuration", "rule_id", event.rule_id)
+        if not rule:
+            raise LookupError("Rule not found")
+        changes = {"cleared_at": frappe_datetime(event.cleared_at)}
+        if int(rule.get("auto_close") or 0) == 1:
+            changes["status"] = self.cfg.alarm_closed_status
+        self.frappe.update("Alarm", existing["name"], changes)
+        return "cleared"
 
     def cycle(self) -> dict:
         with self.store.cycle_lock() as acquired:
