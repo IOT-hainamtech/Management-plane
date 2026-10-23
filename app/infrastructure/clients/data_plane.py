@@ -9,6 +9,7 @@ from app.application.errors import IntegrationError
 class DataPlaneClient:
     def __init__(self, cfg, transport=None):
         headers = {"Accept": "application/json"}
+        headers["X-Org-Code"] = str(cfg.org_code)
         if cfg.data_plane_token:
             headers["Authorization"] = f"Bearer {cfg.data_plane_token}"
         self.client = httpx.Client(
@@ -41,7 +42,10 @@ class DataPlaneClient:
         else:
             raise ValueError(f"Unsupported Data Plane sync kind: {kind}")
 
-        response = self._request(method, path, json=payload)
+        # Profile ownership is represented by the tenant header and queue
+        # dependency; Dev 2's ProfileIn does not accept org_code in the body.
+        body = {key: value for key, value in payload.items() if key != "org_code"} if kind == "profile" else payload
+        response = self._request(method, path, json=body)
         if not response.content:
             raise ValueError(f"{kind} response must contain JSON")
         try:

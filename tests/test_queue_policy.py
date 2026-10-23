@@ -77,7 +77,8 @@ class QueueStore:
 
 def cfg():
     return SimpleNamespace(
-        org_code="demo", org_name="Demo Organization", device_status_online="Online", device_status_offline="Offline",
+        org_code="demo", org_name="Demo Organization", nextgrp_organization_name="Demo Organization",
+        device_status_online="Online", device_status_offline="Offline",
         alarm_status_new="New", alarm_status_cleared="Cleared", alarm_ack_status="Acknowledged",
         alarm_processing_status="In Progress", alarm_closed_status="Closed",
         sync_batch_size=100, inbox_batch_size=100,
@@ -96,7 +97,7 @@ class FailsProfileOnce(MockDataPlane):
         return super().send(kind, resource_key, payload)
 
 
-def test_failed_profile_blocks_only_its_own_device_and_rule():
+def test_failed_profile_blocks_only_its_own_device():
     store, plane = QueueStore(), FailsProfileOnce()
     frappe = MockFrappe()
     frappe.docs["Device Profile"].append({

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     inbound_token: str
     admin_token: str
     database_url: str
-    poll_seconds: int = Field(default=30, ge=5, le=3600)
+    poll_seconds: int = Field(default=900, ge=5, le=3600)
     sync_batch_size: int = Field(default=100, ge=1, le=1000)
     inbox_batch_size: int = Field(default=100, ge=1, le=1000)
 

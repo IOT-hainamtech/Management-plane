@@ -21,15 +21,38 @@ class InboxService:
     def _organization_name(self):
         return getattr(self.cfg, "nextgrp_organization_name", "")
 
-    def _filters(self):
-        return [["organization", "=", self._organization_name]] if self._organization_name else None
+    def _owned_device(self, device_id: str):
+        device = self.frappe.find("Device", "device_id", device_id)
+        if not device:
+            return None
+        site_name = device.get("site")
+        site = self.frappe.find("Site", "name", site_name) if site_name else None
+        if not site or (self._organization_name and site.get("organization") != self._organization_name):
+            raise OrganizationMismatchError("Device Site is outside configured Organization")
+        return device
 
-    def _find_owned(self, doctype: str, field: str, value: str):
-        document = self.frappe.find(doctype, field, value, filters=self._filters())
-        if document and getattr(self.cfg, "nextgrp_mode", "mock") == "live":
-            if document.get("organization") != self._organization_name:
-                raise OrganizationMismatchError("Frappe document organization mismatch")
-        return document
+    def _rule_for_device(self, rule_id: str, device: dict):
+        rule = self.frappe.find("Rule Configuration", "rule_id", rule_id)
+        if not rule:
+            return None
+        scope = rule.get("scope_type")
+        field, expected = {
+            "Device": ("scope_ref", device["name"]),
+            "Device Profile": ("scope_profile", device.get("device_profile")),
+            "Zone": ("scope_zone", device.get("zone")),
+            "Site": ("scope_site", device.get("site")),
+        }.get(scope, (None, None))
+        if not field or not expected or rule.get(field) != expected:
+            raise OrganizationMismatchError("Rule does not apply to Device")
+        return rule
+
+    def _alarm_for_device(self, alarm_key: str, device: dict):
+        alarm = self.frappe.find("Alarm", "alarm_key", alarm_key)
+        if alarm and (alarm.get("device") != device["name"] or (
+            alarm.get("site") and alarm["site"] != device.get("site")
+        )):
+            raise OrganizationMismatchError("Alarm does not belong to Device Site")
+        return alarm
 
     def _validate_org(self, org_code: str):
         if org_code != self.cfg.org_code:
@@ -70,7 +93,8 @@ class InboxService:
 
     def apply_status(self, raw: dict):
         event = StatusEvent.model_validate(raw)
-        device = self._find_owned("Device", "device_id", event.device_id)
+        self._validate_org(event.org_code)
+        device = self._owned_device(event.device_id)
         if not device:
             raise LookupError(f"Unknown Device: {event.device_id}")
         state_at = event.since or event.last_seen
@@ -89,7 +113,14 @@ class InboxService:
 
     def apply_alarm(self, raw: dict):
         event = AlarmEvent.model_validate(raw)
-        existing = self._find_owned("Alarm", "alarm_key", event.alarm_key)
+        self._validate_org(event.org_code)
+        device = self._owned_device(event.device_id)
+        if not device:
+            raise LookupError(f"Unknown Device: {event.device_id}")
+        rule = self._rule_for_device(event.rule_id, device)
+        if not rule:
+            raise LookupError(f"Unknown Rule: {event.rule_id}")
+        existing = self._alarm_for_device(event.alarm_key, device)
         if event.kind == "occurrence":
             if existing:
                 raised_at = frappe_datetime(event.raised_at)
@@ -106,13 +137,14 @@ class InboxService:
                         changes["status"] = self.cfg.alarm_status_new
                 self.frappe.update("Alarm", existing["name"], changes)
                 return "updated-occurrence"
-            rule = self._find_owned("Rule Configuration", "rule_id", event.rule_id)
-            device = self._find_owned("Device", "device_id", event.device_id)
-            zone = self._find_owned("Zone", "zone_code", event.zone_code) if event.zone_code else None
-            if not rule or not device or (event.zone_code and not zone):
+            zone = self.frappe.find("Zone", "zone_code", event.zone_code) if event.zone_code else None
+            if event.zone_code and not zone:
                 raise LookupError("Missing Rule, Device or Zone in nextGRP; sync configuration first")
+            if zone and (zone.get("site") != device.get("site") or zone.get("name") != device.get("zone")):
+                raise OrganizationMismatchError("Zone does not belong to Device Site")
             body = {
                 "alarm_key": event.alarm_key, "rule": rule["name"], "device": device["name"],
+                "site": device["site"],
                 "zone": zone["name"] if zone else None, "severity": event.severity,
                 "status": self.cfg.alarm_status_new,
                 "first_occurred": frappe_datetime(event.episode_start),
@@ -121,8 +153,6 @@ class InboxService:
                 "source_event_id": event.event.event_id,
                 "event_type": event.event.event_type,
             }
-            if self._organization_name:
-                body["organization"] = self._organization_name
             self.frappe.create("Alarm", {key: value for key, value in body.items() if value is not None})
             return "created-occurrence"
         if not existing:
@@ -132,9 +162,6 @@ class InboxService:
             return "already-cleared" if cleared_at <= str(existing["cleared_at"]) else "stale-cleared"
         if existing.get("last_occurred") and cleared_at < str(existing["last_occurred"]):
             return "stale-cleared"
-        rule = self._find_owned("Rule Configuration", "rule_id", event.rule_id)
-        if not rule:
-            raise LookupError("Rule not found")
         changes = {"cleared_at": cleared_at}
         if int(rule.get("auto_close") or 0) == 1:
             changes["status"] = self.cfg.alarm_closed_status

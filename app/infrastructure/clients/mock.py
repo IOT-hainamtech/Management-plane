@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 
 MOCK_DOCS = {
-    "Site": [{"name": "SITE-001", "site_code": "demo-site", "site_name": "Demo Site", "version": 1}],
+    "Site": [{"name": "SITE-001", "site_code": "demo-site", "site_name": "Demo Site", "organization": "Demo Organization", "version": 1}],
     "Zone": [{"name": "ZONE-001", "zone_code": "office", "zone_name": "Office", "site": "SITE-001", "version": 1}],
     "Device Profile": [{
         "name": "PROFILE-001", "profile_code": "TEMP_HUM_SENSOR", "version": 1,
@@ -45,9 +45,12 @@ class MockFrappe:
     def all(self, doctype: str, filters: list | None = None) -> list[dict]:
         records = self.docs.get(doctype, [])
         for field, operator, value in filters or []:
-            if operator != "=":
-                raise ValueError(f"Mock only supports '=' filters, got {operator}")
-            records = [record for record in records if record.get(field) == value]
+            if operator == "=":
+                records = [record for record in records if record.get(field) == value]
+            elif operator == "in":
+                records = [record for record in records if record.get(field) in value]
+            else:
+                raise ValueError(f"Mock only supports '=' and 'in' filters, got {operator}")
         return deepcopy(records)
 
     def find(self, doctype: str, field: str, value: str, filters: list | None = None) -> dict | None:

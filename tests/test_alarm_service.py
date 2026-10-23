@@ -49,6 +49,8 @@ def test_quiet_window_occurrences_update_one_alarm_and_keep_source_event_separat
     assert saved["occurrence_count"] == 2
     assert saved["source_event_id"] == "sensor-1"
     assert saved["event_type"] == "TEMPERATURE_HIGH"
+    assert saved["site"] == "SITE-001"
+    assert "organization" not in saved
 
 
 def test_cleared_is_idempotent_and_auto_closes_from_rule_configuration():

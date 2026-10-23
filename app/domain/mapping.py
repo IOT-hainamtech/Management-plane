@@ -49,6 +49,26 @@ def normalized_dtype(value: object) -> str:
     return result
 
 
+def normalized_signal_model(value: object, doc: dict) -> str:
+    result = str(value).strip().upper()
+    if result in {"TELEMETRY", "EVENT"}:
+        return result
+    has_points = bool(doc.get("profile_data_points"))
+    has_events = bool(doc.get("event_types"))
+    if has_points and not has_events:
+        return "TELEMETRY"
+    if has_events and not has_points:
+        return "EVENT"
+    raise ValueError(f"Cannot infer signal_model from Profile fields: {value}")
+
+
+def normalized_connectivity_type(value: object) -> str:
+    result = str(value).strip().upper()
+    if result == "WIFI" or result in {"LAN", "4G", "5G"}:
+        return result
+    raise ValueError(f"Unsupported connectivity_type: {value}")
+
+
 def optional_json(value: object, field: str):
     if value is None or value == "":
         return None
@@ -133,7 +153,7 @@ def profile(doc: dict, org_code: str) -> dict:
     ]
     return {
         "org_code": org_code, "profile_code": str(need(doc, "profile_code")), "version": version(doc),
-        "signal_model": str(need(doc, "signal_model")), "protocol": str(need(doc, "protocol")),
+        "signal_model": normalized_signal_model(need(doc, "signal_model"), doc), "protocol": str(need(doc, "protocol")),
         "expected_interval_s": doc.get("expected_interval_s"), "heartbeat_interval_s": doc.get("heartbeat_interval_s"),
         "offline_after_missed": doc.get("offline_after_missed"), "event_types": event_types,
         "data_points": points,
@@ -145,18 +165,16 @@ def device(doc: dict, context: Context, org_code: str) -> dict:
     if status not in {"registered", "active", "maintenance", "retired"}:
         raise ValueError(f"{doc.get('name', '?')}: unsupported device status {doc.get('status')!r}")
     site_code = linked(doc, "site", context.sites, "site_code")
-    zone_code = None
-    if doc.get("zone"):
-        zone_code = linked(doc, "zone", context.zones, "zone_code")
-        zone = context.zones[str(doc["zone"])]
-        if linked(zone, "site", context.sites, "site_code") != site_code:
-            raise ValueError(f"{doc.get('name', '?')}: Zone does not belong to Device Site")
+    zone_code = linked(doc, "zone", context.zones, "zone_code")
+    zone = context.zones[str(doc["zone"])]
+    if linked(zone, "site", context.sites, "site_code") != site_code:
+        raise ValueError(f"{doc.get('name', '?')}: Zone does not belong to Device Site")
     return {
         "org_code": org_code, "device_id": str(need(doc, "device_id")),
         "profile_code": linked(doc, "device_profile", context.profiles, "profile_code"),
         "site_code": site_code, "zone_code": zone_code,
         "status": status,
-        "connectivity_type": doc.get("connectivity_type"), "mac": doc.get("mac"),
+        "connectivity_type": normalized_connectivity_type(need(doc, "connectivity_type")),
         "config_version": version(doc, "config_version"),
     }
 
@@ -194,7 +212,7 @@ def plan_results(
     output: list[tuple[str, str, int, int, dict]] = []
     errors: list[dict] = []
     seen_keys = {("organization", org_code)}
-    organization = {"org_code": org_code, "org_name": org_name, "version": 1}
+    organization = {"org_code": org_code, "name": org_name, "version": 1}
     output.append(("organization", org_code, 0, 1, organization))
 
     def add(kind, priority, row, maker, key_field, version_field="version"):
@@ -212,12 +230,12 @@ def plan_results(
     for row in sites.values():
         add("site", 10, row, lambda doc: {
             "org_code": org_code, "site_code": str(need(doc, "site_code")),
-            "site_name": str(need(doc, "site_name")), "version": version(doc),
+            "name": str(need(doc, "site_name")), "version": version(doc),
         }, "site_code")
     for row in zones.values():
         add("zone", 20, row, lambda doc: {
             "org_code": org_code, "zone_code": str(need(doc, "zone_code")),
-            "zone_name": str(need(doc, "zone_name")),
+            "name": str(need(doc, "zone_name")),
             "site_code": linked(doc, "site", sites, "site_code"), "version": version(doc),
         }, "zone_code")
     for row in profiles.values():
