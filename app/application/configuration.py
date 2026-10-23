@@ -1,5 +1,3 @@
-"""Scan Frappe configuration and deliver independent jobs in dependency order."""
-
 import hashlib
 import logging
 from datetime import datetime

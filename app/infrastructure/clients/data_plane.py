@@ -1,5 +1,3 @@
-"""Outbound IF-00..03/06/07 Data Plane REST adapter."""
-
 import json
 from urllib.parse import quote
 

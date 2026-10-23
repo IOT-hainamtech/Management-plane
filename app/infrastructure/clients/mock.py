@@ -1,5 +1,3 @@
-"""Deterministic in-memory adapters used in local development and unit tests."""
-
 from copy import deepcopy
 from datetime import datetime, timezone
 

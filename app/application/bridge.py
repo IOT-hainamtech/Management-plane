@@ -1,5 +1,3 @@
-"""Bridge use cases composed from configuration and inbound event services."""
-
 import logging
 
 from app.application.configuration import ConfigurationSync

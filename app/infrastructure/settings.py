@@ -3,8 +3,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime configuration for one Management Bridge organization."""
-
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "development"

@@ -1,18 +1,16 @@
 class OrganizationMismatchError(ValueError):
-    """An inbound event or Frappe document belongs to another organization."""
+    pass
 
 
 class EventIdConflictError(ValueError):
-    """An event_id was already persisted with a different payload."""
+    pass
 
 
 class StorageUnavailableError(Exception):
-    """The durable event inbox could not commit or read its ACK."""
+    pass
 
 
 class IntegrationError(Exception):
-    """An external system failed; permanence is decided by its adapter."""
-
     def __init__(self, message: str, *, permanent: bool = False):
         super().__init__(message)
         self.permanent = permanent

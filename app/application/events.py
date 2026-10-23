@@ -15,8 +15,6 @@ class StatusEvent(BaseModel):
 
 
 class SourceEvent(BaseModel):
-    """The sensor/rule event that caused an IF-05 alarm message."""
-
     model_config = ConfigDict(extra="allow")
 
     event_id: str = Field(min_length=1, max_length=180)

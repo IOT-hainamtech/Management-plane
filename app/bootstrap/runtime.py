@@ -1,5 +1,3 @@
-"""One place to assemble and close the Bridge's external connections."""
-
 from contextlib import contextmanager
 
 from app.infrastructure.clients import DataPlaneClient, FrappeClient, MockDataPlane, MockFrappe

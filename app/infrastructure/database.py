@@ -62,8 +62,6 @@ class InboxEvent(Base):
 
 
 class DeviceStatusCursor(Base):
-    """Last status-transition timestamp applied for a device."""
-
     __tablename__ = "device_status_cursors"
 
     org_code: Mapped[str] = mapped_column(String(120), primary_key=True)
@@ -74,8 +72,6 @@ class DeviceStatusCursor(Base):
 
 
 class Store:
-    """Durable outgoing queue and at-least-once incoming event inbox."""
-
     def __init__(self, database_url: str):
         self.engine = create_engine(database_url, pool_pre_ping=True)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -88,14 +84,12 @@ class Store:
             connection.execute(text("SELECT 1"))
 
     def recover_processing(self):
-        """Call under cycle_lock to resume work interrupted by a process crash."""
         with self.sessions.begin() as session:
             session.execute(update(ConfigJob).where(ConfigJob.state == "processing").values(state="pending", retry_at=now()))
             session.execute(update(InboxEvent).where(InboxEvent.state == "processing").values(state="pending", retry_at=now()))
 
     @contextmanager
     def cycle_lock(self):
-        """Hold a PostgreSQL advisory lock while a complete bridge cycle runs."""
         with self.engine.connect() as connection:
             acquired = connection.execute(text("SELECT pg_try_advisory_lock(hashtext('nextwireless_bridge_cycle'))")).scalar_one()
             try:
@@ -142,7 +136,6 @@ class Store:
         return "restaged", row
 
     def stage_many(self, resources, batch_size: int = 100) -> dict:
-        """Prefetch each batch, then stage valid resources in a bounded transaction."""
         counts = {"staged": 0, "restaged": 0, "unchanged": 0, "invalid": []}
         for start in range(0, len(resources), batch_size):
             batch = resources[start:start + batch_size]

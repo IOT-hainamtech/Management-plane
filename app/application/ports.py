@@ -1,5 +1,3 @@
-"""Capabilities required by use cases; adapters implement them structurally."""
-
 from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Protocol

@@ -1,5 +1,3 @@
-"""Persist inbound events, then apply them to nextGRP from the worker."""
-
 from datetime import datetime
 from zoneinfo import ZoneInfo
 

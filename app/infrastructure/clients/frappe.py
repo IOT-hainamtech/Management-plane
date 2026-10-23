@@ -1,5 +1,3 @@
-"""Synchronous Frappe REST adapter for the nextGRP Management Plane."""
-
 import json
 from copy import deepcopy
 from urllib.parse import quote

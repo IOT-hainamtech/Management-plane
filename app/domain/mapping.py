@@ -50,7 +50,6 @@ def normalized_dtype(value: object) -> str:
 
 
 def optional_json(value: object, field: str):
-    """Decode JSON stored by Frappe in a Small Text field without guessing."""
     if value is None or value == "":
         return None
     if isinstance(value, (list, dict)):
@@ -231,7 +230,6 @@ def plan_results(
 
 
 def plans(docs: dict[str, list[dict]], org_code: str, org_name: str) -> list[tuple[str, str, int, int, dict]]:
-    """Strict snapshot for inspection; the worker uses plan_results to isolate bad rows."""
     output, errors = plan_results(docs, org_code, org_name)
     if errors:
         first = errors[0]

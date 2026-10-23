@@ -1,1 +1,0 @@
-"""Background polling worker package."""

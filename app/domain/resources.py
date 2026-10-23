@@ -1,5 +1,3 @@
-"""Dependencies between configuration resources sent to the Data Plane."""
-
 from dataclasses import dataclass
 
 
@@ -13,7 +11,7 @@ class ResourceRef:
 
 
 def dependencies_for(kind: str, payload: dict) -> tuple[ResourceRef, ...]:
-    """Return only the parents required by this resource, not a global priority barrier."""
+
     org = ResourceRef("organization", payload["org_code"])
     if kind == "organization":
         return ()

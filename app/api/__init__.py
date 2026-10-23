@@ -1,5 +1,3 @@
-"""HTTP composition root; keeps ``uvicorn app.api:app`` stable."""
-
 from app.bootstrap.runtime import open_bridge
 from app.infrastructure.settings import Settings
 from app.presentation.http import create_app as build_http_app
