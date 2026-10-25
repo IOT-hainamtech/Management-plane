@@ -33,7 +33,7 @@ def occurrence(event_id="bridge-1", sequence=1):
         "episode_start": "2026-10-22T03:00:00Z",
         "raised_at": "2026-10-22T03:01:00Z",
         "occurrence_seq": sequence,
-        "event": {"event_id": "sensor-1", "event_type": "TEMPERATURE_HIGH", "ts": "2026-10-22T03:01:00Z", "data": {"temperature": 31}},
+        "event": {"event_id": "sensor-1", "event_type": "TEMPERATURE_HIGH", "ts": "2026-10-22T03:01:00Z", "data": {"temperature": 31, "summary": "Nhiệt độ cao", "description": "Nhiệt độ vượt ngưỡng 30°C"}},
     }
 
 
@@ -51,6 +51,7 @@ def test_quiet_window_occurrences_update_one_alarm_and_keep_source_event_separat
     assert saved["event_type"] == "TEMPERATURE_HIGH"
     assert saved["site"] == "SITE-001"
     assert "organization" not in saved
+    assert saved["summary"] == "Nhiệt độ cao\n\nNhiệt độ vượt ngưỡng 30°C"
 
 
 def test_cleared_is_idempotent_and_auto_closes_from_rule_configuration():

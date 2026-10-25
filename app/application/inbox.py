@@ -54,6 +54,16 @@ class InboxService:
             raise OrganizationMismatchError("Alarm does not belong to Device Site")
         return alarm
 
+    @staticmethod
+    def _alarm_summary(event: AlarmEvent) -> str | None:
+        data = event.event.data
+        parts = [
+            str(data[field]).strip()
+            for field in ("summary", "description")
+            if isinstance(data.get(field), str) and data[field].strip()
+        ]
+        return "\n\n".join(parts) or None
+
     def _validate_org(self, org_code: str):
         if org_code != self.cfg.org_code:
             raise OrganizationMismatchError("Organization mismatch")
@@ -129,6 +139,9 @@ class InboxService:
                 if existing.get("last_occurred") and raised_at < str(existing["last_occurred"]):
                     return "stale-occurrence"
                 changes = {"occurrence_count": event.occurrence_seq, "last_occurred": raised_at}
+                summary = self._alarm_summary(event)
+                if summary:
+                    changes["summary"] = summary
                 if existing.get("cleared_at"):
                     if raised_at <= str(existing["cleared_at"]):
                         return "stale-occurrence"
@@ -153,6 +166,9 @@ class InboxService:
                 "source_event_id": event.event.event_id,
                 "event_type": event.event.event_type,
             }
+            summary = self._alarm_summary(event)
+            if summary:
+                body["summary"] = summary
             self.frappe.create("Alarm", {key: value for key, value in body.items() if value is not None})
             return "created-occurrence"
         if not existing:

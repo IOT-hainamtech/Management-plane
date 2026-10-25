@@ -19,8 +19,6 @@ class Job:
 
 
 class QueueStore:
-    """Small deterministic store double for worker ordering/idempotency policy."""
-
     def __init__(self):
         self.jobs: list[Job] = []
         self.events: dict[str, tuple[str, str, str]] = {}
